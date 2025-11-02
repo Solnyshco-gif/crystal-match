@@ -26,7 +26,6 @@
         .gem::after { content:''; position:absolute; inset:2px; background:linear-gradient(135deg,#fff4,transparent); border-radius:8px; }
         .gem.selected { transform:scale(1.35); box-shadow:0 0 35px gold, 0 0 60px #ff0; z-index:10; }
 
-        /* УНИКАЛЬНЫЕ ФОРМЫ */
         .gem-1 { clip-path: circle(50%); background:linear-gradient(135deg,#FF6B6B,#FF8E8E); }
         .gem-2 { clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%); background:linear-gradient(135deg,#4ECDC4,#88D9E6); }
         .gem-3 { clip-path: polygon(50% 0%, 100% 100%, 0% 100%); background:linear-gradient(135deg,#FFD166,#FFE8A3); }
@@ -129,11 +128,11 @@
 </div>
 
 <script>
-const tg = window.Telegram.WebApp; tg.expand();
+const tg = window.Telegram?.WebApp || { expand: () => {} }; tg.expand();
 const S=8, T=7;
 const TARGETS=[1000,2500,5000,10000,20000];
 const MOVES=[25,22,20,18,15];
-const USER_NAME = tg.initDataUnsafe.user?.first_name || "Игрок";
+const USER_NAME = (tg.initDataUnsafe?.user?.first_name) || "Игрок";
 
 const st = {b:[],sc:0,mv:25,lv:1,tg:1000,cb:1,cm:1,sel:null,an:false,st:false};
 const el = {
@@ -153,19 +152,16 @@ const el = {
 function rnd(){return Math.floor(Math.random()*T)+1}
 function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
 
-// === ЛИДЕРБОРД: ТОП-10 ===
+// === ЛИДЕРБОРД ===
 const LB = {
     key: 'crystalLB',
-    get(){ return JSON.parse(localStorage.getItem(this.key) || '[]'); },
+    get(){ try { return JSON.parse(localStorage.getItem(this.key) || '[]'); } catch { return []; } },
     save(d){ localStorage.setItem(this.key, JSON.stringify(d.slice(0,10))); },
     add(score){
         const data = this.get();
         const exists = data.find(p => p.name === USER_NAME);
-        if (exists) {
-            if (score > exists.score) exists.score = score;
-        } else {
-            data.push({name: USER_NAME, score});
-        }
+        if (exists) { if (score > exists.score) exists.score = score; }
+        else { data.push({name: USER_NAME, score}); }
         data.sort((a,b)=>b.score-a.score);
         this.save(data);
     },
@@ -184,7 +180,7 @@ const LB = {
 // === БОНУСЫ ===
 const BONUS = {
     key: 'crystalBonus',
-    get(){ return JSON.parse(localStorage.getItem(this.key) || '{"last":0,"streak":0}'); },
+    get(){ try { return JSON.parse(localStorage.getItem(this.key) || '{"last":0,"streak":0}'); } catch { return {last:0,streak:0}; } },
     save(d){ localStorage.setItem(this.key, JSON.stringify(d)); },
     check(){
         const now = Date.now();
@@ -220,9 +216,11 @@ function showBonusPopup(text){
 // === СОХРАНЕНИЕ ===
 function save(){ localStorage.setItem('crystalSave', JSON.stringify({lv:st.lv,sc:st.sc,mv:st.mv,tg:st.tg})); }
 function load(){
-    const s = localStorage.getItem('crystalSave');
-    if(s){ const d=JSON.parse(s); st.lv=d.lv||1; st.sc=d.sc||0; st.mv=d.mv||MOVES[st.lv-1]||25; st.tg=d.tg||TARGETS[st.lv-1]||1000; }
-    else { st.tg=TARGETS[0]; st.mv=MOVES[0]; }
+    try {
+        const s = localStorage.getItem('crystalSave');
+        if(s){ const d=JSON.parse(s); st.lv=d.lv||1; st.sc=d.sc||0; st.mv=d.mv||MOVES[st.lv-1]||25; st.tg=d.tg||TARGETS[st.lv-1]||1000; }
+        else { st.tg=TARGETS[0]; st.mv=MOVES[0]; }
+    } catch(e) { console.error("Load error:", e); }
 }
 
 // === ЭФФЕКТЫ ===
@@ -286,7 +284,7 @@ function sel(r,c){
 }
 function clear(){document.querySelectorAll('.gem.selected').forEach(e=>e.classList.remove('selected'))}
 
-// === УЛЬТРА-ПРЕМИУМ АНИМАЦИЯ ОБМЕНА ПО ДУГЕ ===
+// === УЛЬТРА-ПЛАВНАЯ АНИМАЦИЯ ОБМЕНА ===
 async function swapGems(g1, g2) {
     const cell1 = document.querySelector(`[data-r="${g1.r}"][data-c="${g1.c}"]`);
     const cell2 = document.querySelector(`[data-r="${g2.r}"][data-c="${g2.c}"]`);
@@ -370,7 +368,6 @@ async function proc(m){
     m.forEach(mm=>{
         sc+=mm.l*100*st.cb;
         for(let i=0;i<mm.l;i++){
-, i++){
             const rr=mm.h?mm.r:mm.r+i, cc=mm.h?mm.c+i:mm.c;
             explode(rr,cc);
         }
@@ -445,7 +442,8 @@ load();
 let p=0;
 const iv=setInterval(()=>{
     p+=35; el.f.style.width=Math.min(p,100)+'%';
-    if(p>=100){clearInterval(iv);
+    if(p>=100){
+        clearInterval(iv);
         initBoard(); render(); ui();
         el.g.style.display='flex'; el.l.style.opacity='0';
         setTimeout(()=>{el.l.remove(); BONUS.claim();},600);
@@ -454,12 +452,12 @@ const iv=setInterval(()=>{
 
 /* КНОПКИ */
 el.bonus.onclick=()=>{ if(!BONUS.claim()) alert('Бонус уже получен!'); };
-el.hint.onclick=()=>{/* подсказка */};
+el.hint.onclick=()=>{ alert('Подсказка: ищите 3+ в ряд!'); };
 el.rest.onclick=reset;
 el.next.onclick=next;
 el.leader.onclick=()=>{ LB.show(); el.lbModal.classList.remove('hidden'); };
 el.closeLb.onclick=()=>{ el.lbModal.classList.add('hidden'); };
-el.prem.onclick=()=>tg.showPopup({title:'Премиум',message:'Без рекламы!',buttons:[{type:'default',text:'299₽/мес'},{type:'cancel'}]});
+el.prem.onclick=()=>tg.showPopup?.({title:'Премиум',message:'Без рекламы!',buttons:[{type:'default',text:'299₽/мес'},{type:'cancel'}]}) || alert('Премиум недоступен');
 
 </script>
 </body>
