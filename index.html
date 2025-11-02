@@ -20,7 +20,7 @@
         .stats { display:flex; flex-direction:column; gap:5px; font-weight:bold; font-size:14px; }
         .stat-value { background:#fff2; padding:4px 12px; border-radius:15px; min-width:60px; text-align:center; }
 
-        #game-board { display:grid; grid-template-columns:repeat(8,1fr); gap:4px; background:#0003; border-radius:15px; padding:8px; }
+        #game-board { display:grid; grid-template-columns:repeat(8,1fr); gap:4px; background:#0003; border-radius:15px; padding:8px; position:relative; }
         .cell { width:var(--c); height:var(--c); background:#fff1; border-radius:12px; display:flex; align-items:center; justify-content:center; cursor:pointer; overflow:hidden; position:relative; }
         .gem { width:var(--g); height:var(--g); border-radius:10px; box-shadow:0 4px 15px #0003; transition:all .6s cubic-bezier(.2,.8,.3,1); position:relative; z-index:1; }
         .gem::after { content:''; position:absolute; inset:2px; background:linear-gradient(135deg,#fff4,transparent); border-radius:8px; }
@@ -105,7 +105,7 @@
     <div class="controls">
         <button class="btn btn-bonus" id="bonus">Бонус</button>
         <button class="btn" id="hint">Подсказка</button>
-        <button class="btn btn-leader" id="leader">ТОП-10</button>
+        <button class="btn btn-leader" id="leader">ТОП-1</button>
         <button class="btn btn-premium" id="prem">ПРЕМИУМ</button>
         <button class="btn" id="restart">Заново</button>
     </div>
@@ -121,7 +121,7 @@
 
 <div id="lb-modal" class="modal hidden">
     <div class="modal-content">
-        <h2>Лидерборд</h2>
+        <h2>Ваш лучший результат</h2>
         <div id="lb-list"></div>
         <button class="btn" id="close-lb">Закрыть</button>
     </div>
@@ -152,7 +152,31 @@ const el = {
 function rnd(){return Math.floor(Math.random()*T)+1}
 function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
 
-// === ЕЖЕДНЕВНЫЕ БОНУСЫ ===
+// === ЛИДЕРБОРД: ТОЛЬКО ОДИН ПОЛЬЗОВАТЕЛЬ ===
+const LB = {
+    key: 'crystalBest',
+    get(){ return JSON.parse(localStorage.getItem(this.key) || '{"name":"'+USER_NAME+'","score":0}'); },
+    save(d){ localStorage.setItem(this.key, JSON.stringify(d)); },
+    update(score){
+        const data = this.get();
+        if (score > data.score) {
+            data.score = score;
+            this.save(data);
+        }
+    },
+    show(){
+        const data = this.get();
+        el.lbList.innerHTML = `
+            <div class="lb-item">
+                <span class="lb-rank">1.</span>
+                <span>${data.name}</span>
+                <span>${data.score} очков</span>
+            </div>
+        `;
+    }
+};
+
+// === БОНУСЫ ===
 const BONUS = {
     key: 'crystalBonus',
     get(){ return JSON.parse(localStorage.getItem(this.key) || '{"last":0,"streak":0}'); },
@@ -174,7 +198,7 @@ const BONUS = {
         st.mv += bonus.moves;
         st.sc += bonus.score;
         if (bonus.streak >= 3) st.sc += 1000;
-        ui(); save(); LB.add(st.sc);
+        ui(); save(); LB.update(st.sc);
         showBonusPopup(`+${bonus.moves} ходов! +${bonus.score} очков!${bonus.streak>=3?' +1000 за серию!':''}`);
         return true;
     }
@@ -187,29 +211,6 @@ function showBonusPopup(text){
     document.body.appendChild(popup);
     setTimeout(() => popup.remove(), 2000);
 }
-
-// === ЛИДЕРБОРД ===
-const LB = {
-    key: 'crystalLB',
-    get(){ return JSON.parse(localStorage.getItem(this.key) || '[]'); },
-    save(d){ localStorage.setItem(this.key, JSON.stringify(d.slice(0,10))); },
-    add(score){
-        const data = this.get();
-        data.push({name: USER_NAME, score, date: new Date().toLocaleDateString()});
-        data.sort((a,b)=>b.score-a.score);
-        this.save(data);
-    },
-    show(){
-        const data = this.get();
-        el.lbList.innerHTML = data.length ? data.map((e,i)=>`
-            <div class="lb-item">
-                <span class="lb-rank">${i+1}.</span>
-                <span>${e.name}</span>
-                <span>${e.score}</span>
-            </div>
-        `).join('') : '<p style="opacity:.6">Пока нет рекордов</p>';
-    }
-};
 
 // === СОХРАНЕНИЕ ===
 function save(){ localStorage.setItem('crystalSave', JSON.stringify({lv:st.lv,sc:st.sc,mv:st.mv,tg:st.tg})); }
@@ -271,7 +272,7 @@ function click(r,c){
     const g={r,c,t:st.b[r][c]};
     if(!st.sel){st.sel=g;sel(r,c)}
     else if(Math.abs(g.r-st.sel.r)+Math.abs(g.c-st.sel.c)==1){
-        st.an=true; swapGems(st.sel,g).then(ok=>{if(ok){st.mv--;ui();win();save();LB.add(st.sc)};st.sel=null;st.an=false});
+        st.an=true; swapGems(st.sel,g).then(ok=>{if(ok){st.mv--;ui();win();save();LB.update(st.sc)};st.sel=null;st.an=false});
     }else{clear();st.sel=g;sel(r,c)}
 }
 function sel(r,c){
@@ -280,22 +281,60 @@ function sel(r,c){
 }
 function clear(){document.querySelectorAll('.gem.selected').forEach(e=>e.classList.remove('selected'))}
 
-async function swapGems(g1,g2){
-    const c1=document.querySelector(`[data-r="${g1.r}"][data-c="${g1.c}"]`);
-    const c2=document.querySelector(`[data-r="${g2.r}"][data-c="${g2.c}"]`);
-    const r1=c1.getBoundingClientRect(), r2=c2.getBoundingClientRect();
-    const dx=r2.left-r1.left, dy=r2.top-r1.top;
-    const gem1=c1.querySelector('.gem'), gem2=c2.querySelector('.gem');
-    gem1.style.position=gem2.style.position='fixed';
-    gem1.style.left=r1.left+'px'; gem1.style.top=r1.top+'px';
-    gem2.style.left=r2.left+'px'; gem2.style.top=r2.top+'px';
-    gem1.style.zIndex=gem2.style.zIndex=100;
-    requestAnimationFrame(()=>{gem1.style.transition='transform .6s cubic-bezier(.2,.8,.3,1)'; gem2.style.transition='transform .6s cubic-bezier(.2,.8,.3,1)';
-        gem1.style.transform=`translate(${dx}px,${dy}px)`; gem2.style.transform=`translate(${-dx}px,${-dy}px)`});
+// === КРАСИВАЯ АНИМАЦИЯ ОБМЕНА (БЕЗ СДВИГОВ) ===
+async function swapGems(g1, g2) {
+    const cell1 = document.querySelector(`[data-r="${g1.r}"][data-c="${g1.c}"]`);
+    const cell2 = document.querySelector(`[data-r="${g2.r}"][data-c="${g2.c}"]`);
+    const gem1 = cell1.querySelector('.gem');
+    const gem2 = cell2.querySelector('.gem');
+
+    // Сохраняем стили
+    const style1 = { ...gem1.style };
+    const style2 = { ...gem2.style };
+
+    // Делаем копии для анимации
+    const clone1 = gem1.cloneNode(true);
+    const clone2 = gem2.cloneNode(true);
+    clone1.style.position = clone2.style.position = 'absolute';
+    clone1.style.zIndex = clone2.style.zIndex = 100;
+    clone1.style.transition = clone2.style.transition = 'all .6s cubic-bezier(.2,.8,.3,1)';
+
+    const rect1 = cell1.getBoundingClientRect();
+    const rect2 = cell2.getBoundingClientRect();
+
+    // Позиционируем клоны
+    clone1.style.left = rect1.left + 'px';
+    clone1.style.top = rect1.top + 'px';
+    clone2.style.left = rect2.left + 'px';
+    clone2.style.top = rect2.top + 'px';
+
+    document.body.appendChild(clone1);
+    document.body.appendChild(clone2);
+
+    // Анимация к новым позициям
+    requestAnimationFrame(() => {
+        clone1.style.left = rect2.left + 'px';
+        clone1.style.top = rect2.top + 'px';
+        clone2.style.left = rect1.left + 'px';
+        clone2.style.top = rect1.top + 'px';
+    });
+
     await sleep(600);
-    swap(g1.r,g1.c,g2.r,g2.c); render();
-    const m=find(); if(m.length){await proc(m);return true}
-    swap(g1.r,g1.c,g2.r,g2.c); render(); return false;
+
+    // Обновляем доску
+    swap(g1.r, g1.c, g2.r, g2.c);
+    render();
+
+    // Удаляем клоны
+    clone1.remove();
+    clone2.remove();
+
+    const m = find();
+    if (m.length) {
+        await proc(m);
+        return true;
+    }
+    return false;
 }
 
 function find(){
@@ -373,6 +412,7 @@ function reset(){
     if(!confirm('Сбросить весь прогресс?')) return;
     localStorage.removeItem('crystalSave');
     localStorage.removeItem('crystalBonus');
+    localStorage.removeItem('crystalBest');
     st.lv=1; st.sc=0; st.mv=25; st.tg=1000; st.cb=1; st.cm=1; st.st=false;
     initBoard(); render(); ui();
 }
