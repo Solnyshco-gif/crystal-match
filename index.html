@@ -26,6 +26,7 @@
         .gem::after { content:''; position:absolute; inset:2px; background:linear-gradient(135deg,#fff4,transparent); border-radius:8px; }
         .gem.selected { transform:scale(1.35); box-shadow:0 0 35px gold, 0 0 60px #ff0; z-index:10; }
 
+        /* УНИКАЛЬНЫЕ ФОРМЫ */
         .gem-1 { clip-path: circle(50%); background:linear-gradient(135deg,#FF6B6B,#FF8E8E); }
         .gem-2 { clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%); background:linear-gradient(135deg,#4ECDC4,#88D9E6); }
         .gem-3 { clip-path: polygon(50% 0%, 100% 100%, 0% 100%); background:linear-gradient(135deg,#FFD166,#FFE8A3); }
@@ -36,16 +37,16 @@
 
         @keyframes p { 0%,100% {transform:scale(1)} 50% {transform:scale(1.1)} }
         @keyframes e { to {transform:scale(0);opacity:0} }
-        @keyframes f { 0% {transform:translateY(-300px);opacity:0} 70% {transform:translateY(10px)} 100% {transform:translateY(0);opacity:1} }
+        @keyframes f { 0% {transform:translateY(-400px);opacity:0} 70% {transform:translateY(15px)} 100% {transform:translateY(0);opacity:1} }
         @keyframes slide { 0% {transform:translateX(var(--dx)) translateY(-30px)} 100% {transform:translateX(0) translateY(0)} }
-        @keyframes s { 0% {transform:scale(0) rotate(-360deg);opacity:0} 70% {transform:scale(1.2)} 100% {transform:scale(1);opacity:1} }
+        @keyframes s { 0% {transform:scale(0) rotate(-360deg);opacity:0} 70% {transform:scale(1.3)} 100% {transform:scale(1);opacity:1} }
         @keyframes shine { 0% {box-shadow:0 0 20px gold} 100% {box-shadow:0 0 40px #ff0, 0 0 60px #ff0} }
         @keyframes particle { 0% {transform:scale(1);opacity:1} 100% {transform:translate(var(--tx),var(--ty)) scale(0);opacity:0} }
 
         .gem.exploding { animation:e .7s cubic-bezier(.2,.8,.3,1) forwards; }
-        .gem.falling { animation:f .8s cubic-bezier(.2,.8,.3,1); }
+        .gem.falling { /* динамическая длительность через JS */ }
         .gem.sliding { animation:slide .6s cubic-bezier(.2,.8,.3,1); }
-        .gem.spawning { animation:s .7s cubic-bezier(.2,.8,.3,1); }
+        .gem.spawning { /* динамическая длительность через JS */ }
         .gem.shine { animation:shine .6s ease-out; }
 
         .particle { position:absolute; width:6px; height:6px; background:gold; border-radius:50%; pointer-events:none; z-index:100; animation:particle .9s ease-out forwards; }
@@ -154,11 +155,76 @@ const el = {
 function rnd(){return Math.floor(Math.random()*T)+1}
 function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
 
-// === ЛИДЕРБОРД, БОНУСЫ, СОХРАНЕНИЕ — без изменений ===
-const LB = { /* ... как раньше ... */ };
-const BONUS = { /* ... как раньше ... */ };
-function save(){ /* ... */ }
-function load(){ /* ... */ }
+// === ЛИДЕРБОРД ===
+const LB = {
+    key: 'crystalLB',
+    get(){ try { return JSON.parse(localStorage.getItem(this.key) || '[]'); } catch { return []; } },
+    save(d){ localStorage.setItem(this.key, JSON.stringify(d.slice(0,10))); },
+    add(score){
+        const data = this.get();
+        const exists = data.find(p => p.name === USER_NAME);
+        if (exists) { if (score > exists.score) exists.score = score; }
+        else { data.push({name: USER_NAME, score}); }
+        data.sort((a,b)=>b.score-a.score);
+        this.save(data);
+    },
+    show(){
+        const data = this.get();
+        el.lbList.innerHTML = data.length ? data.map((e,i)=>`
+            <div class="lb-item">
+                <span class="lb-rank">${i+1}.</span>
+                <span>${e.name}</span>
+                <span>${e.score} очков</span>
+            </div>
+        `).join('') : '<p style="opacity:.6">Пока нет рекордов</p>';
+    }
+};
+
+// === БОНУСЫ ===
+const BONUS = {
+    key: 'crystalBonus',
+    get(){ try { return JSON.parse(localStorage.getItem(this.key) || '{"last":0,"streak":0}'); } catch { return {last:0,streak:0}; } },
+    save(d){ localStorage.setItem(this.key, JSON.stringify(d)); },
+    check(){
+        const now = Date.now();
+        const data = this.get();
+        const day = 24*60*60*1000;
+        if (now - data.last > day) {
+            const streak = (now - data.last < day*2) ? data.streak + 1 : 1;
+            this.save({last: now, streak});
+            return {moves:5, score:500, streak};
+        }
+        return null;
+    },
+    claim(){
+        const bonus = this.check();
+        if (!bonus) return false;
+        st.mv += bonus.moves;
+        st.sc += bonus.score;
+        if (bonus.streak >= 3) st.sc += 1000;
+        ui(); save(); LB.add(st.sc);
+        showBonusPopup(`+${bonus.moves} ходов! +${bonus.score} очков!${bonus.streak>=3?' +1000 за серию!':''}`);
+        return true;
+    }
+};
+
+function showBonusPopup(text){
+    const popup = document.createElement('div');
+    popup.className = 'bonus-popup';
+    popup.textContent = text;
+    document.body.appendChild(popup);
+    setTimeout(() => popup.remove(), 2000);
+}
+
+// === СОХРАНЕНИЕ ===
+function save(){ localStorage.setItem('crystalSave', JSON.stringify({lv:st.lv,sc:st.sc,mv:st.mv,tg:st.tg})); }
+function load(){
+    try {
+        const s = localStorage.getItem('crystalSave');
+        if(s){ const d=JSON.parse(s); st.lv=d.lv||1; st.sc=d.sc||0; st.mv=d.mv||MOVES[st.lv-1]||25; st.tg=d.tg||TARGETS[st.lv-1]||1000; }
+        else { st.tg=TARGETS[0]; st.mv=MOVES[0]; }
+    } catch(e) { console.error("Load error:", e); }
+}
 
 // === ЭФФЕКТЫ ===
 function createParticles(cell, color = 'gold'){
@@ -178,9 +244,22 @@ function createParticles(cell, color = 'gold'){
 }
 
 // === ИГРА ===
-function initBoard(){ /* ... */ }
-function matchAt(r,c,t){ /* ... */ }
-function hasMoves(){ /* ... */ }
+function initBoard(){
+    st.b=Array(S).fill().map(()=>Array(S).fill(0));
+    for(let r=0;r<S;r++)for(let c=0;c<S;c++){
+        let t; do{t=rnd()}while(matchAt(r,c,t));
+        st.b[r][c]=t;
+    }
+    if(!hasMoves()) initBoard();
+}
+function matchAt(r,c,t){return (c>1&&st.b[r][c-1]==t&&st.b[r][c-2]==t)||(r>1&&st.b[r-1][c]==t&&st.b[r-2][c]==t)}
+function hasMoves(){
+    for(let r=0;r<S;r++)for(let c=0;c<S;c++){
+        if(c<S-1){swap(r,c,r,c+1);if(find().length){swap(r,c,r,c+1);return true}}
+        if(r<S-1){swap(r,c,r+1,c);if(find().length){swap(r,c,r+1,c);return true}}
+    }
+    return false;
+}
 function swap(r1,c1,r2,c2){[st.b[r1][c1],st.b[r2][c2]]=[st.b[r2][c2],st.b[r1][c1]]}
 
 function render(){
@@ -193,75 +272,97 @@ function render(){
         cell.onclick=()=>click(r,c);
     }
 }
-function click(r,c){ /* ... как раньше ... */ }
-function sel(r,c){ /* ... */ }
-function clear(){ /* ... */ }
+function click(r,c){
+    if(st.an||st.mv<=0)return;
+    if(!st.st)st.st=true;
+    const g={r,c,t:st.b[r][c]};
+    if(!st.sel){st.sel=g;sel(r,c)}
+    else if(Math.abs(g.r-st.sel.r)+Math.abs(g.c-st.sel.c)==1){
+        st.an=true; swapGems(st.sel,g).then(ok=>{if(ok){st.mv--;ui();win();save();LB.add(st.sc)};st.sel=null;st.an=false});
+    }else{clear();st.sel=g;sel(r,c)}
+}
+function sel(r,c){
+    const gem = document.querySelector(`[data-r="${r}"][data-c="${c}"] .gem`);
+    if(gem) { gem.classList.add('selected'); gem.classList.add('shine'); setTimeout(()=>gem.classList.remove('shine'),600); }
+}
+function clear(){document.querySelectorAll('.gem.selected').forEach(e=>e.classList.remove('selected'))}
 
-// === УЛЬТРА-АНИМАЦИЯ ОБМЕНА ===
-async function swapGems(g1, g2) { /* ... как раньше ... */ }
+// === УЛЬТРА-ПЛАВНАЯ АНИМАЦИЯ ОБМЕНА ===
+async function swapGems(g1, g2) {
+    const cell1 = document.querySelector(`[data-r="${g1.r}"][data-c="${g1.c}"]`);
+    const cell2 = document.querySelector(`[data-r="${g2.r}"][data-c="${g2.c}"]`);
+    const gem1 = cell1.querySelector('.gem');
+    const gem2 = cell2.querySelector('.gem');
 
-// === НОВАЯ ФУНКЦИЯ: ПАДЕНИЕ + СДВИГ С ДУГОЙ ===
-async function drop() {
-    let moved = false;
-    const animPromises = [];
+    const rect1 = cell1.getBoundingClientRect();
+    const rect2 = cell2.getBoundingClientRect();
 
-    // Вертикальное падение
-    for (let c = 0; c < S; c++) {
-        let writePos = S - 1;
-        for (let r = S - 1; r >= 0; r--) {
-            if (st.b[r][c]) {
-                if (r !== writePos) {
-                    st.b[writePos][c] = st.b[r][c];
-                    st.b[r][c] = 0;
-                    moved = true;
+    const dx = rect2.left - rect1.left;
+    const dy = rect2.top - rect1.top;
+    const curveHeight = Math.abs(dy) * 0.6 + 30;
+    const isHorizontal = Math.abs(dx) > Math.abs(dy);
 
-                    const cell = document.querySelector(`[data-r="${writePos}"][data-c="${c}"]`);
-                    const gem = cell?.querySelector('.gem');
-                    if (gem) {
-                        gem.classList.add('falling');
-                        createParticles(cell, '#FFD166');
-                    }
-                }
-                writePos--;
-            }
+    const clone1 = gem1.cloneNode(true);
+    const clone2 = gem2.cloneNode(true);
+    clone1.style.position = clone2.style.position = 'fixed';
+    clone1.style.zIndex = clone2.style.zIndex = 150;
+    clone1.style.transition = 'none';
+    clone2.style.transition = 'none';
+
+    clone1.style.left = rect1.left + 'px'; clone1.style.top = rect1.top + 'px';
+    clone2.style.left = rect2.left + 'px'; clone2.style.top = rect2.top + 'px';
+
+    document.body.appendChild(clone1);
+    document.body.appendChild(clone2);
+
+    requestAnimationFrame(() => {
+        clone1.style.transition = clone2.style.transition = 'all .65s cubic-bezier(0.2, 0.8, 0.3, 1)';
+        if (isHorizontal) {
+            clone1.style.transform = `translateX(${dx}px) translateY(${-curveHeight}px)`;
+            clone2.style.transform = `translateX(${-dx}px) translateY(${-curveHeight}px)`;
+        } else {
+            clone1.style.transform = `translateX(${-curveHeight}px) translateY(${dy}px)`;
+            clone2.style.transform = `translateX(${-curveHeight}px) translateY(${-dy}px)`;
         }
-    }
+    });
 
-    // Горизонтальный сдвиг (если дырки слева/справа)
-    for (let r = 0; r < S; r++) {
-        let emptyCount = 0;
-        for (let c = 0; c < S; c++) {
-            if (!st.b[r][c]) emptyCount++;
-            else if (emptyCount > 0) {
-                st.b[r][c - emptyCount] = st.b[r][c];
-                st.b[r][c] = 0;
-                moved = true;
+    await sleep(650);
 
-                const cell = document.querySelector(`[data-r="${r}"][data-c="${c - emptyCount}"]`);
-                const gem = cell?.querySelector('.gem');
-                if (gem) {
-                    gem.style.setProperty('--dx', `${emptyCount * 50}px`);
-                    gem.classList.add('sliding');
-                    createParticles(cell, '#4ECDC4');
-                }
-            }
-        }
-    }
+    swap(g1.r, g1.c, g2.r, g2.c);
+    render();
+    const matches = find();
 
-    if (moved) {
+    if (matches.length > 0) {
+        clone1.remove(); clone2.remove();
+        await proc(matches);
+        return true;
+    } else {
+        swap(g1.r, g1.c, g2.r, g2.c);
         render();
-        await sleep(800);
+
+        requestAnimationFrame(() => {
+            clone1.style.transition = clone2.style.transition = 'all .65s cubic-bezier(0.2, 0.8, 0.3, 1)';
+            clone1.style.transform = 'translate(0,0)';
+            clone2.style.transform = 'translate(0,0)';
+        });
+
+        await sleep(650);
+        clone1.remove(); clone2.remove();
+        return false;
     }
-    return moved;
 }
 
-async function spawn(){
-    let sp=false;
-    for(let r=0;r<S;r++)for(let c=0;c<S;c++)if(!st.b[r][c]){
-        st.b[r][c]=rnd(); sp=true;
-        setTimeout(()=>{const cell=document.querySelector(`[data-r="${r}"][data-c="${c}"]`); const gem=cell?.querySelector('.gem'); if(gem){gem.classList.add('spawning'); createParticles(cell, '#4ECDC4');}},100);
+function find(){
+    const m=[],v=Array(S).fill().map(()=>Array(S).fill(false));
+    for(let r=0;r<S;r++)for(let c=0;c<S;c++){
+        if(v[r][c]||!st.b[r][c])continue;
+        const t=st.b[r][c]; let h=1,vv=1;
+        while(c+h<S&&st.b[r][c+h]==t)h++;
+        while(r+vv<S&&st.b[r+vv][c]==t)vv++;
+        if(h>=3){m.push({r,c,l:h,h:true});for(let i=0;i<h;i++)v[r][c+i]=true}
+        if(vv>=3){m.push({r,c,l:vv,h:false});for(let i=0;i<vv;i++)v[r+i][c]=true}
     }
-    if(sp){render();await sleep(700)}
+    return m;
 }
 
 async function proc(m){
@@ -279,12 +380,144 @@ async function proc(m){
     const n=find(); if(n.length)await proc(n); else{st.cb=1;st.cm=1}
     ui(); save();
 }
+function explode(r,c){
+    const cell = document.querySelector(`[data-r="${r}"][data-c="${c}"]`);
+    const gem = cell?.querySelector('.gem');
+    if(gem) { gem.classList.add('exploding'); createParticles(cell); }
+    setTimeout(()=>{st.b[r][c]=0},500);
+}
 
-// === ОСТАЛЬНОЕ: ui(), win(), next(), reset(), загрузка ===
-function ui(){ /* ... */ }
-function win(){ /* ... */ }
-function next(){ /* ... */ }
-function reset(){ /* ... */ }
+// === УЛЬТРА-ПАДЕНИЕ С РАЗНЫМИ СКОРОСТЯМИ ===
+async function drop() {
+    let moved = false;
+    const maxDelay = 0;
+
+    for (let c = 0; c < S; c++) {
+        let writePos = S - 1;
+        for (let r = S - 1; r >= 0; r--) {
+            if (st.b[r][c]) {
+                if (r !== writePos) {
+                    const distance = r - writePos;
+                    const baseSpeed = 0.6 + Math.random() * 0.4;
+                    const speed = Math.max(0.4, baseSpeed - distance * 0.05);
+                    const type = st.b[r][c];
+
+                    st.b[writePos][c] = type;
+                    st.b[r][c] = 0;
+                    moved = true;
+
+                    setTimeout(() => {
+                        const cell = document.querySelector(`[data-r="${writePos}"][data-c="${c}"]`);
+                        const gem = cell?.querySelector('.gem');
+                        if (gem) {
+                            gem.style.animation = 'none';
+                            requestAnimationFrame(() => {
+                                gem.style.animation = `f ${speed}s cubic-bezier(0.2, 0.8, 0.3, 1)`;
+                                gem.classList.add('falling');
+                                setTimeout(() => createParticles(cell, type % 2 === 0 ? '#FFD166' : '#4ECDC4'), speed * 1000 - 100);
+                            });
+                        }
+                    }, 50);
+                }
+                writePos--;
+            }
+        }
+    }
+
+    // Горизонтальный сдвиг
+    for (let r = 0; r < S; r++) {
+        let emptyCount = 0;
+        for (let c = 0; c < S; c++) {
+            if (!st.b[r][c]) emptyCount++;
+            else if (emptyCount > 0) {
+                const type = st.b[r][c];
+                st.b[r][c - emptyCount] = type;
+                st.b[r][c] = 0;
+                moved = true;
+
+                setTimeout(() => {
+                    const cell = document.querySelector(`[data-r="${r}"][data-c="${c - emptyCount}"]`);
+                    const gem = cell?.querySelector('.gem');
+                    if (gem) {
+                        gem.style.setProperty('--dx', `${emptyCount * 50}px`);
+                        gem.classList.add('sliding');
+                        createParticles(cell, '#06D6A0');
+                    }
+                }, 100);
+            }
+        }
+    }
+
+    if (moved) {
+        render();
+        await sleep(1200);
+    }
+    return moved;
+}
+
+// === СНАВН С РАЗНЫМИ СКОРОСТЯМИ ===
+async function spawn() {
+    let sp = false;
+    let maxDelay = 0;
+
+    for (let r = 0; r < S; r++) {
+        for (let c = 0; c < S; c++) {
+            if (!st.b[r][c]) {
+                const type = rnd();
+                st.b[r][c] = type;
+                sp = true;
+
+                const delay = Math.random() * 300;
+                maxDelay = Math.max(maxDelay, delay);
+
+                setTimeout(() => {
+                    const cell = document.querySelector(`[data-r="${r}"][data-c="${c}"]`);
+                    const gem = cell?.querySelector('.gem');
+                    if (gem) {
+                        const speed = 0.5 + Math.random() * 0.3;
+                        gem.style.animation = `s ${speed}s cubic-bezier(0.2, 0.8, 0.3, 1)`;
+                        gem.classList.add('spawning');
+                        createParticles(cell, '#9B5DE5');
+                    }
+                }, delay);
+            }
+        }
+    }
+
+    if (sp) {
+        render();
+        await sleep(maxDelay + 800);
+    }
+}
+
+function ui(){
+    el.sc.textContent=st.sc; el.mv.textContent=st.mv; el.lv.textContent=st.lv;
+    el.tg.textContent=st.tg; el.cb.textContent='x'+st.cb;
+    el.pr.style.width=Math.min(st.sc/st.tg*100,100)+'%';
+}
+function win(){
+    if(st.st&&st.sc>=st.tg){el.fs.textContent=st.sc;el.win.classList.remove('hidden')}
+    else if(st.mv<=0&&st.st){setTimeout(()=>{alert('Ходы кончились!');reset()},500)}
+}
+function next(){
+    st.lv++; st.tg=TARGETS[st.lv-1]||st.lv*2000;
+    st.mv=MOVES[st.lv-1]||15; st.sc=0; st.cb=1; st.cm=1; st.st=false;
+    initBoard(); render(); ui(); save(); el.win.classList.add('hidden');
+}
+function reset(){
+    if(!confirm('Сбросить весь прогресс?')) return;
+    localStorage.clear();
+    st.lv=1; st.sc=0; st.mv=25; st.tg=1000; st.cb=1; st.cm=1; st.st=false;
+    initBoard(); render(); ui();
+}
+
+/* ЗАЩИТА ОТ ЗУМА */
+let lastTouch = 0;
+document.addEventListener('touchend', e => {
+    const now = Date.now();
+    if (now - lastTouch < 300) e.preventDefault();
+    lastTouch = now;
+}, { passive: false });
 
 /* ЗАГРУЗКА */
 load();
