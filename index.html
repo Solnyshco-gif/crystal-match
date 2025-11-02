@@ -26,7 +26,7 @@
         .gem::after { content:''; position:absolute; inset:2px; background:linear-gradient(135deg,#fff4,transparent); border-radius:8px; }
         .gem.selected { transform:scale(1.35); box-shadow:0 0 35px gold, 0 0 60px #ff0; z-index:10; }
 
-        /* ФОРМЫ */
+        /* УНИКАЛЬНЫЕ ФОРМЫ */
         .gem-1 { clip-path: circle(50%); background:linear-gradient(135deg,#FF6B6B,#FF8E8E); }
         .gem-2 { clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%); background:linear-gradient(135deg,#4ECDC4,#88D9E6); }
         .gem-3 { clip-path: polygon(50% 0%, 100% 100%, 0% 100%); background:linear-gradient(135deg,#FFD166,#FFE8A3); }
@@ -153,7 +153,7 @@ const el = {
 function rnd(){return Math.floor(Math.random()*T)+1}
 function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
 
-// === ЛИДЕРБОРД: ТОП-10 (автодобавление) ===
+// === ЛИДЕРБОРД: ТОП-10 ===
 const LB = {
     key: 'crystalLB',
     get(){ return JSON.parse(localStorage.getItem(this.key) || '[]'); },
@@ -286,7 +286,7 @@ function sel(r,c){
 }
 function clear(){document.querySelectorAll('.gem.selected').forEach(e=>e.classList.remove('selected'))}
 
-// === УЛЬТРА-ПЛАВНАЯ АНИМАЦИЯ ОБМЕНА (БЕЗ ПРЫЖКОВ) ===
+// === УЛЬТРА-ПРЕМИУМ АНИМАЦИЯ ОБМЕНА ПО ДУГЕ ===
 async function swapGems(g1, g2) {
     const cell1 = document.querySelector(`[data-r="${g1.r}"][data-c="${g1.c}"]`);
     const cell2 = document.querySelector(`[data-r="${g2.r}"][data-c="${g2.c}"]`);
@@ -296,39 +296,59 @@ async function swapGems(g1, g2) {
     const rect1 = cell1.getBoundingClientRect();
     const rect2 = cell2.getBoundingClientRect();
 
-    // Клоны для анимации
+    const dx = rect2.left - rect1.left;
+    const dy = rect2.top - rect1.top;
+    const curveHeight = Math.abs(dy) * 0.6 + 30;
+    const isHorizontal = Math.abs(dx) > Math.abs(dy);
+
     const clone1 = gem1.cloneNode(true);
     const clone2 = gem2.cloneNode(true);
     clone1.style.position = clone2.style.position = 'fixed';
-    clone1.style.zIndex = clone2.style.zIndex = 100;
-    clone1.style.transition = clone2.style.transition = 'transform .6s cubic-bezier(.2,.8,.3,1)';
+    clone1.style.zIndex = clone2.style.zIndex = 150;
+    clone1.style.transition = 'none';
+    clone2.style.transition = 'none';
+
     clone1.style.left = rect1.left + 'px'; clone1.style.top = rect1.top + 'px';
     clone2.style.left = rect2.left + 'px'; clone2.style.top = rect2.top + 'px';
 
     document.body.appendChild(clone1);
     document.body.appendChild(clone2);
 
-    // Анимация
     requestAnimationFrame(() => {
-        clone1.style.transform = `translate(${(rect2.left - rect1.left)}px, ${(rect2.top - rect1.top)}px)`;
-        clone2.style.transform = `translate(${(rect1.left - rect2.left)}px, ${(rect1.top - rect2.top)}px)`;
+        clone1.style.transition = clone2.style.transition = 'all .65s cubic-bezier(0.2, 0.8, 0.3, 1)';
+        if (isHorizontal) {
+            clone1.style.transform = `translateX(${dx}px) translateY(${-curveHeight}px)`;
+            clone2.style.transform = `translateX(${-dx}px) translateY(${-curveHeight}px)`;
+        } else {
+            clone1.style.transform = `translateX(${-curveHeight}px) translateY(${dy}px)`;
+            clone2.style.transform = `translateX(${-curveHeight}px) translateY(${-dy}px)`;
+        }
     });
 
-    await sleep(600);
+    await sleep(650);
 
-    // Обновляем доску
     swap(g1.r, g1.c, g2.r, g2.c);
     render();
+    const matches = find();
 
-    clone1.remove();
-    clone2.remove();
-
-    const m = find();
-    if (m.length) {
-        await proc(m);
+    if (matches.length > 0) {
+        clone1.remove(); clone2.remove();
+        await proc(matches);
         return true;
+    } else {
+        swap(g1.r, g1.c, g2.r, g2.c);
+        render();
+
+        requestAnimationFrame(() => {
+            clone1.style.transition = clone2.style.transition = 'all .65s cubic-bezier(0.2, 0.8, 0.3, 1)';
+            clone1.style.transform = 'translate(0,0)';
+            clone2.style.transform = 'translate(0,0)';
+        });
+
+        await sleep(650);
+        clone1.remove(); clone2.remove();
+        return false;
     }
-    return false;
 }
 
 function find(){
@@ -350,6 +370,7 @@ async function proc(m){
     m.forEach(mm=>{
         sc+=mm.l*100*st.cb;
         for(let i=0;i<mm.l;i++){
+, i++){
             const rr=mm.h?mm.r:mm.r+i, cc=mm.h?mm.c+i:mm.c;
             explode(rr,cc);
         }
